@@ -1540,7 +1540,7 @@ records = instance.get_event_records(
         Args:
             run_id (str): The id of the run the launch.
         """
-        from dagster.core.launcher import LaunchRunContext
+        from dagster.core.launcher import ResumeRunContext
         from dagster.core.events import EngineEventData
         from dagster.daemon.monitoring import RESUME_RUN_LOG_MESSAGE
 
@@ -1560,11 +1560,10 @@ records = instance.get_event_records(
         )
 
         try:
-            self._run_launcher.launch_run(
-                LaunchRunContext(
+            self._run_launcher.resume_run(
+                ResumeRunContext(
                     pipeline_run=run,
                     workspace=workspace,
-                    resume_from_failure=True,
                     resume_attempt_number=attempt_number,
                 )
             )
