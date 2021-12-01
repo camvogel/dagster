@@ -1,6 +1,7 @@
 from typing import Dict
 
-from dagster import AssetKey, In, Out, pipeline
+from dagster import AssetKey, In, Out, job, pipeline
+from dagster.core.asset_defs import ForeignAsset
 from dagster.core.decorator_utils import get_function_params
 from dagster.core.definitions.decorators.op import _Op
 from dagster.core.host_representation.external_data import (
@@ -39,7 +40,7 @@ def test_single_asset_pipeline():
     def my_graph():
         asset1()
 
-    external_asset_nodes = external_asset_graph_from_defs([my_graph])
+    external_asset_nodes = external_asset_graph_from_defs([my_graph], foreign_assets_by_key={})
 
     assert external_asset_nodes == [
         ExternalAssetNode(
@@ -65,7 +66,7 @@ def test_two_asset_pipeline():
     def my_graph():
         asset2(asset1())
 
-    external_asset_nodes = external_asset_graph_from_defs([my_graph])
+    external_asset_nodes = external_asset_graph_from_defs([my_graph], foreign_assets_by_key={})
 
     assert external_asset_nodes == [
         ExternalAssetNode(
@@ -104,7 +105,9 @@ def test_cross_pipeline_asset_dependency():
     def asset2_graph():
         asset2()  # pylint: disable=no-value-for-parameter
 
-    external_asset_nodes = external_asset_graph_from_defs([asset1_graph, asset2_graph])
+    external_asset_nodes = external_asset_graph_from_defs(
+        [asset1_graph, asset2_graph], foreign_assets_by_key={}
+    )
 
     assert external_asset_nodes == [
         ExternalAssetNode(
@@ -139,7 +142,9 @@ def test_same_asset_in_multiple_pipelines():
     def graph2():
         asset1()
 
-    external_asset_nodes = external_asset_graph_from_defs([graph1, graph2])
+    external_asset_nodes = external_asset_graph_from_defs(
+        [graph1, graph2], foreign_assets_by_key={}
+    )
 
     assert external_asset_nodes == [
         ExternalAssetNode(
@@ -148,6 +153,53 @@ def test_same_asset_in_multiple_pipelines():
             op_name="asset1",
             op_description=None,
             job_names=["graph1", "graph2"],
+        ),
+    ]
+
+
+def test_unused_foreign_asset():
+    foo = ForeignAsset(key=AssetKey("foo"), description="abc")
+    bar = ForeignAsset(key=AssetKey("bar"), description="def")
+
+    external_asset_nodes = external_asset_graph_from_defs(
+        [], foreign_assets_by_key={AssetKey("foo"): foo, AssetKey("bar"): bar}
+    )
+    assert external_asset_nodes == [
+        ExternalAssetNode(
+            asset_key=AssetKey("foo"), op_description="abc", dependencies=[], job_names=[]
+        ),
+        ExternalAssetNode(
+            asset_key=AssetKey("bar"), op_description="def", dependencies=[], job_names=[]
+        ),
+    ]
+
+
+def test_used_foreign_asset():
+    bar = ForeignAsset(key=AssetKey("bar"), description="def")
+
+    @asset
+    def foo(bar):
+        assert bar
+
+    @job
+    def job1():
+        foo()  # pylint: disable=no-value-for-parameter
+
+    external_asset_nodes = external_asset_graph_from_defs(
+        [job1], foreign_assets_by_key={AssetKey("bar"): bar}
+    )
+    assert external_asset_nodes == [
+        ExternalAssetNode(
+            asset_key=AssetKey("bar"), op_description="def", dependencies=[], job_names=[]
+        ),
+        ExternalAssetNode(
+            asset_key=AssetKey("foo"),
+            op_name="foo",
+            op_description=None,
+            dependencies=[
+                ExternalAssetDependency(upstream_asset_key=AssetKey(["bar"]), input_name="bar")
+            ],
+            job_names=["job1"],
         ),
     ]
 
